@@ -182,19 +182,20 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
             config_kwargs["stop_sequences"] = stop
 
         # --- 直接关闭所有安全设置 (在 _generate 方法内部) ---
+
         config_kwargs["safety_settings"] = [
-            glm.SafetySetting(  # 这里使用 glm，而不是 genai.types
+            genai.types.SafetySetting(  # 明确使用 genai.types.SafetySetting
                 category=cat,
-                threshold=glm.HarmBlockThreshold.BLOCK_NONE  # 这里使用 glm，而不是 genai.types
+                threshold=HarmBlockThreshold.BLOCK_NONE  # 直接使用 HarmBlockThreshold
             ) for cat in [
-                glm.HarmCategory.HARM_CATEGORY_HARASSMENT,  # 这里使用 glm，而不是 genai.types
-                glm.HarmCategory.HARM_CATEGORY_HATE_SPEECH,  # 这里使用 glm，而不是 genai.types
-                glm.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,  # 这里使用 glm，而不是 genai.types
-                glm.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,  # 这里使用 glm，而不是 genai.types
-                # glm.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY  # 如果需要，取消注释
+                HarmCategory.HARM_CATEGORY_HARASSMENT,
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY  # 如果需要，取消注释
             ]
         ]
-
+ 
         # Configure the Google GenerativeAI library
         genai.configure(api_key=credentials["google_api_key"])
 
