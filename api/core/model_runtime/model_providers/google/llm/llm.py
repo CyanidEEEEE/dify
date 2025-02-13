@@ -192,7 +192,7 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
                 HarmCategory.HARM_CATEGORY_HATE_SPEECH,
                 HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
                 HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY  # 如果需要，取消注释
+                # HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY  # 如果需要，取消注释
             ]
         ]
  
