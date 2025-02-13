@@ -123,6 +123,7 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
 
         except Exception as ex:
             raise CredentialsValidateFailedError(str(ex))
+            
     def _generate(
         self,
         model: str,
@@ -136,6 +137,15 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     ) -> Union[LLMResult, Generator]:
         """
         Invoke large language model
+
+        :param model: model name
+        :param credentials: credentials kwargs
+        :param prompt_messages: prompt messages
+        :param model_parameters: model parameters
+        :param stop: stop words
+        :param stream: is stream response
+        :param user: unique user id
+        :return: full response or stream response chunk generator result
         """
         config_kwargs = model_parameters.copy()
         if schema := config_kwargs.pop("json_schema", None):
@@ -150,11 +160,12 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
 
         if stop:
             config_kwargs["stop_sequences"] = stop
-        
-        # 关闭安全设置： 方式1
+
+        # --- 安全设置修改开始 ---
+        # 关闭安全设置: 方式1 (不太推荐，但可能有效)
         # config_kwargs["safety_settings"] = []
-        
-        # 关闭安全设置: 方式2
+
+        # 关闭安全设置: 方式2 (推荐，更明确)
         config_kwargs["safety_settings"] = [
             genai.types.SafetySetting(
                 category=cat,
@@ -164,9 +175,10 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
                 HarmCategory.HARM_CATEGORY_HATE_SPEECH,
                 HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
                 HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                #HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY # 如果需要，取消注释
+                # HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY  # 如果需要，取消注释
             ]
         ]
+        # --- 安全设置修改结束 ---
 
         genai.configure(api_key=credentials["google_api_key"])
 
@@ -186,9 +198,11 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
             raise InvokeError("The user prompt message is required. You only add a system prompt message.")
 
         google_model = genai.GenerativeModel(model_name=model, system_instruction=system_instruction)
+
+        # 确保所有其他参数都正确传递
         response = google_model.generate_content(
             contents=history,
-            generation_config=genai.types.GenerationConfig(**config_kwargs),
+            generation_config=genai.types.GenerationConfig(**config_kwargs),  # 使用 config_kwargs
             stream=stream,
             tools=self._convert_tools_to_glm_tool(tools) if tools else None,
             request_options={"timeout": 600},
@@ -196,8 +210,8 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
 
         if stream:
             return self._handle_generate_stream_response(model, credentials, response, prompt_messages)
-
-        return self._handle_generate_response(model, credentials, response, prompt_messages)
+        else:
+            return self._handle_generate_response(model, credentials, response, prompt_messages)
 
     def _handle_generate_response(
         self, model: str, credentials: dict, response: GenerateContentResponse, prompt_messages: list[PromptMessage]
