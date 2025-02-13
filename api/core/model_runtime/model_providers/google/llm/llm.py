@@ -10,7 +10,8 @@ import google.ai.generativelanguage as glm
 import google.generativeai as genai  # type: ignore
 import requests
 from google.api_core import exceptions
-from google.generativeai.types import ContentType, File, GenerateContentResponse, HarmCategory, HarmBlockThreshold
+from google import genai
+from google.generativeai.types import ContentType, File, GenerateContentResponse, SafetySetting, HarmCategory, HarmBlockThreshold
 from google.generativeai.types.content_types import to_part
 
 from core.model_runtime.entities.llm_entities import LLMResult, LLMResultChunk, LLMResultChunkDelta
@@ -162,43 +163,37 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
         user: Optional[str] = None,
     ) -> Union[LLMResult, Generator]:
         """
-        Invoke large language model (Gemini)
+        Invoke large language model
+
+        :param model: model name
+        :param credentials: credentials kwargs
+        :param prompt_messages: prompt messages
+        :param model_parameters: model parameters
+        :param stop: stop words
+        :param stream: is stream response
+        :param user: unique user id
+        :return: full response or stream response chunk generator result
         """
         config_kwargs = model_parameters.copy()
-
-        # Handle JSON schema (if provided)
         if schema := config_kwargs.pop("json_schema", None):
             try:
                 schema = json.loads(schema)
             except:
                 raise exceptions.InvalidArgument("Invalid JSON Schema")
             if tools:
-                raise exceptions.InvalidArgument("Gemini does not support using Tools and JSON Schema simultaneously.")
+                raise exceptions.InvalidArgument("gemini not support use Tools and JSON Schema at same time")
             config_kwargs["response_schema"] = schema
             config_kwargs["response_mime_type"] = "application/json"
 
-        # Handle stop sequences
         if stop:
             config_kwargs["stop_sequences"] = stop
 
-        # --- 直接关闭所有安全设置 (在 _generate 方法内部) ---
-
-        config_kwargs["safety_settings"] = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},  # 如果需要
-        ]
- 
-        # Configure the Google GenerativeAI library
         genai.configure(api_key=credentials["google_api_key"])
 
-        # Build the conversation history
         history = []
         system_instruction = None
 
-        for msg in prompt_messages:
+        for msg in prompt_messages:  # makes message roles strictly alternating
             content = self._format_message_to_glm_content(msg)
             if history and history[-1]["role"] == content["role"]:
                 history[-1]["parts"].extend(content["parts"])
@@ -208,24 +203,43 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
                 history.append(content)
 
         if not history:
-            raise InvokeError("The user prompt message is required. You only added a system prompt message.")
+            raise InvokeError("The user prompt message is required. You only add a system prompt message.")
 
-        # Create the Gemini model instance
         google_model = genai.GenerativeModel(model_name=model, system_instruction=system_instruction)
-
-        # Generate content
         response = google_model.generate_content(
-            contents=history,
-            generation_config=genai.types.GenerationConfig(**config_kwargs),
-            stream=stream,
-            tools=self._convert_tools_to_glm_tool(tools) if tools else None,
-            request_options={"timeout": 600},
-        )
+          contents=history,
+          generation_config=genai.types.GenerationConfig(**config_kwargs),
+          stream=stream,
+          tools=self._convert_tools_to_glm_tool(tools) if tools else None,
+          request_options={"timeout": 600},
+          safety_settings=[
+              SafetySetting(
+                  category=HarmCategory.HARM_CATEGORY_HARASSMENT,
+                  threshold=HarmBlockThreshold.BLOCK_NONE,
+              ),
+              SafetySetting(
+                  category=HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                  threshold=HarmBlockThreshold.BLOCK_NONE,
+              ),
+              SafetySetting(
+                  category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                  threshold=HarmBlockThreshold.BLOCK_NONE,
+              ),
+              SafetySetting(
+                  category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                  threshold=HarmBlockThreshold.BLOCK_NONE,
+              ),
+              SafetySetting(
+                  category=HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
+                threshold=HarmBlockThreshold.BLOCK_NONE,
+              ),
+          ]
+      )
 
         if stream:
             return self._handle_generate_stream_response(model, credentials, response, prompt_messages)
-        else:
-            return self._handle_generate_response(model, credentials, response, prompt_messages)
+
+        return self._handle_generate_response(model, credentials, response, prompt_messages)
 
     def _handle_generate_response(
         self, model: str, credentials: dict, response: GenerateContentResponse, prompt_messages: list[PromptMessage]
