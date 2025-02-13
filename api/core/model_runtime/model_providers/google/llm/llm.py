@@ -207,10 +207,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
         # 添加安全设置配置
         safety_settings = [
             {
-                "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
-                "threshold": "BLOCK_NONE"
-            },
-            {
                 "category": "HARM_CATEGORY_HARASSMENT",
                 "threshold": "OFF"
             },
