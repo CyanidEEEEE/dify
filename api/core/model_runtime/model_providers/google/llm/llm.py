@@ -53,7 +53,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
         """
         Invoke large language model
         """
-        # invoke model
         return self._generate(model, credentials, prompt_messages, model_parameters, tools, stop, stream, user)
 
     def get_num_tokens(
@@ -69,12 +68,11 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
         prompt = self._convert_messages_to_prompt(prompt_messages)
         return self._get_num_tokens_by_gpt2(prompt)
 
-
     def _convert_messages_to_prompt(self, messages: list[PromptMessage]) -> str:
         """
         Format a list of messages into a full prompt for the Google model
         """
-        messages = messages.copy()  # don't mutate the original list
+        messages = messages.copy()
         text = "".join(self._convert_one_message_to_text(message) for message in messages)
         return text.rstrip()
 
@@ -151,7 +149,7 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
         if stop:
             config_kwargs["stop_sequences"] = stop
 
-        # --- 直接关闭所有安全设置 (推荐方式) ---
+        # --- 直接关闭所有安全设置 (在 _generate 方法内部) ---
         config_kwargs["safety_settings"] = [
             genai.types.SafetySetting(
                 category=cat,
@@ -182,7 +180,8 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
                 history.append(content)
 
         if not history:
-             raise InvokeError("The user prompt message is required.  You only added a system prompt message.")
+            raise InvokeError("The user prompt message is required. You only added a system prompt message.")
+
 
         # Create the Gemini model instance
         google_model = genai.GenerativeModel(model_name=model, system_instruction=system_instruction)
@@ -303,6 +302,13 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
             raise ValueError(f"Got unknown type {message}")
 
         return message_text
+    
+    def _get_num_tokens_by_gpt2(self, text: str) -> int:
+        """
+        Placeholder: Calculate number of tokens using GPT-2 tokenizer (replace with actual implementation).
+        """
+        # Replace this with a proper GPT-2 tokenizer or an appropriate token counting method for Gemini.
+        return len(text.split())
 
     def _upload_file_content_to_google(self, message_content: PromptMessageContent) -> File:
         """
