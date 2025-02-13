@@ -183,15 +183,15 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
 
         # --- 直接关闭所有安全设置 (在 _generate 方法内部) ---
         config_kwargs["safety_settings"] = [
-            genai.types.SafetySetting(
+            glm.SafetySetting(  # 这里使用 glm，而不是 genai.types
                 category=cat,
-                threshold=genai.types.HarmBlockThreshold.BLOCK_NONE
+                threshold=glm.HarmBlockThreshold.BLOCK_NONE  # 这里使用 glm，而不是 genai.types
             ) for cat in [
-                HarmCategory.HARM_CATEGORY_HARASSMENT,
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                # HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY  # 如果需要，取消注释
+                glm.HarmCategory.HARM_CATEGORY_HARASSMENT,  # 这里使用 glm，而不是 genai.types
+                glm.HarmCategory.HARM_CATEGORY_HATE_SPEECH,  # 这里使用 glm，而不是 genai.types
+                glm.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,  # 这里使用 glm，而不是 genai.types
+                glm.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,  # 这里使用 glm，而不是 genai.types
+                # glm.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY  # 如果需要，取消注释
             ]
         ]
 
