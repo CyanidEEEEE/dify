@@ -152,88 +152,97 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
             raise CredentialsValidateFailedError(str(ex))
 
     def _generate(
-        self,
-        model: str,
-        credentials: dict,
-        prompt_messages: list[PromptMessage],
-        model_parameters: dict,
-        tools: Optional[list[PromptMessageTool]] = None,
-        stop: Optional[list[str]] = None,
-        stream: bool = True,
-        user: Optional[str] = None,
-    ) -> Union[LLMResult, Generator]:
-        """
-        Invoke large language model
+    self,
+    model: str,
+    credentials: dict,
+    prompt_messages: list[PromptMessage],
+    model_parameters: dict,
+    tools: Optional[list[PromptMessageTool]] = None,
+    stop: Optional[list[str]] = None,
+    stream: bool = True,
+    user: Optional[str] = None,
+) -> Union[LLMResult, Generator]:
+    """
+    Invoke large language model
 
-        :param model: model name
-        :param credentials: credentials kwargs
-        :param prompt_messages: prompt messages
-        :param model_parameters: model parameters
-        :param stop: stop words
-        :param stream: is stream response
-        :param user: unique user id
-        :return: full response or stream response chunk generator result
-        """
-        config_kwargs = model_parameters.copy()
-        if schema := config_kwargs.pop("json_schema", None):
-            try:
-                schema = json.loads(schema)
-            except:
-                raise exceptions.InvalidArgument("Invalid JSON Schema")
-            if tools:
-                raise exceptions.InvalidArgument("gemini not support use Tools and JSON Schema at same time")
-            config_kwargs["response_schema"] = schema
-            config_kwargs["response_mime_type"] = "application/json"
+    :param model: model name
+    :param credentials: credentials kwargs
+    :param prompt_messages: prompt messages
+    :param model_parameters: model parameters
+    :param stop: stop words
+    :param stream: is stream response
+    :param user: unique user id
+    :return: full response or stream response chunk generator result
+    """
+    config_kwargs = model_parameters.copy()
+    if schema := config_kwargs.pop("json_schema", None):
+        try:
+            schema = json.loads(schema)
+        except:
+            raise exceptions.InvalidArgument("Invalid JSON Schema")
+        if tools:
+            raise exceptions.InvalidArgument("gemini not support use Tools and JSON Schema at same time")
+        config_kwargs["response_schema"] = schema
+        config_kwargs["response_mime_type"] = "application/json"
 
-        if stop:
-            config_kwargs["stop_sequences"] = stop
+    if stop:
+        config_kwargs["stop_sequences"] = stop
 
-        genai.configure(api_key=credentials["google_api_key"])
+    # 配置基础安全参数
+    safety_settings=[
+        {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_NONE"
+        },
+        {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_NONE"
+        },
+        {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_NONE"
+        },
+        {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_NONE"
+        }
+    ]
 
-        history = []
-        system_instruction = None
+    genai.configure(api_key=credentials["google_api_key"])
 
-        for msg in prompt_messages:  # makes message roles strictly alternating
-            content = self._format_message_to_glm_content(msg)
-            if history and history[-1]["role"] == content["role"]:
-                history[-1]["parts"].extend(content["parts"])
-            elif content["role"] == "system":
-                system_instruction = content["parts"][0]
-            else:
-                history.append(content)
+    history = []
+    system_instruction = None
 
-        if not history:
-            raise InvokeError("The user prompt message is required. You only add a system prompt message.")
+    for msg in prompt_messages:  # makes message roles strictly alternating
+        content = self._format_message_to_glm_content(msg)
+        if history and history[-1]["role"] == content["role"]:
+            history[-1]["parts"].extend(content["parts"])
+        elif content["role"] == "system":
+            system_instruction = content["parts"][0]
+        else:
+            history.append(content)
 
-        google_model = genai.GenerativeModel(model_name=model, system_instruction=system_instruction)
-        safety_settings=[
-            SafetySetting(
-                category=HarmCategory.HARM_CATEGORY_HARASSMENT,
-                threshold=HarmBlockThreshold.BLOCK_NONE,
-            ),
-            SafetySetting(
-                category=HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                threshold=HarmBlockThreshold.BLOCK_NONE,
-            ),
-            SafetySetting(
-                category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                threshold=HarmBlockThreshold.BLOCK_NONE,
-            ),
-            SafetySetting(
-                category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                threshold=HarmBlockThreshold.BLOCK_NONE,
-            ),
-            SafetySetting(
-                category=HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
-                threshold=HarmBlockThreshold.BLOCK_NONE,
-            ),
-        ]
+    if not history:
+        raise InvokeError("The user prompt message is required. You only add a system prompt message.")
+
+    google_model = genai.GenerativeModel(
+        model_name=model,
+        system_instruction=system_instruction,
+        safety_settings=safety_settings
+    )
+    
+    response = google_model.generate_content(
+        contents=history,
+        generation_config=genai.types.GenerationConfig(**config_kwargs),
+        stream=stream,
+        tools=self._convert_tools_to_glm_tool(tools) if tools else None,
+        request_options={"timeout": 600},
     )
 
-        if stream:
-            return self._handle_generate_stream_response(model, credentials, response, prompt_messages)
+    if stream:
+        return self._handle_generate_stream_response(model, credentials, response, prompt_messages)
 
-        return self._handle_generate_response(model, credentials, response, prompt_messages)
+    return self._handle_generate_response(model, credentials, response, prompt_messages)
 
     def _handle_generate_response(
         self, model: str, credentials: dict, response: GenerateContentResponse, prompt_messages: list[PromptMessage]
