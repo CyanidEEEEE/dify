@@ -52,16 +52,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     ) -> Union[LLMResult, Generator]:
         """
         Invoke large language model
-
-        :param model: model name
-        :param credentials: model credentials
-        :param prompt_messages: prompt messages
-        :param model_parameters: model parameters
-        :param tools: tools for tool calling
-        :param stop: stop words
-        :param stream: is stream response
-        :param user: unique user id
-        :return: full response or stream response chunk generator result
         """
         # invoke model
         return self._generate(model, credentials, prompt_messages, model_parameters, tools, stop, stream, user)
@@ -75,12 +65,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     ) -> int:
         """
         Get number of tokens for given prompt messages
-
-        :param model: model name
-        :param credentials: model credentials
-        :param prompt_messages: prompt messages
-        :param tools: tools for tool calling
-        :return: Number of tokens
         """
         prompt = self._convert_messages_to_prompt(prompt_messages)
         return self._get_num_tokens_by_gpt2(prompt)
@@ -89,22 +73,14 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     def _convert_messages_to_prompt(self, messages: list[PromptMessage]) -> str:
         """
         Format a list of messages into a full prompt for the Google model
-
-        :param messages: List of PromptMessage to combine.
-        :return: Combined string with necessary human_prompt and ai_prompt tags.
         """
         messages = messages.copy()  # don't mutate the original list
-
         text = "".join(self._convert_one_message_to_text(message) for message in messages)
-
         return text.rstrip()
 
     def _convert_tools_to_glm_tool(self, tools: list[PromptMessageTool]) -> glm.Tool:
         """
         Convert tool messages to glm tools
-
-        :param tools: tool messages
-        :return: glm tools
         """
         function_declarations = []
         for tool in tools:
@@ -137,10 +113,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     def validate_credentials(self, model: str, credentials: dict) -> None:
         """
         Validate model credentials
-
-        :param model: model name
-        :param credentials: model credentials
-        :return: None
         """
         try:
             ping_message = UserPromptMessage(content="ping")
@@ -161,16 +133,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     ) -> Union[LLMResult, Generator]:
         """
         Invoke large language model (Gemini)
-
-        :param model: model name
-        :param credentials: credentials kwargs (must include "google_api_key")
-        :param prompt_messages: prompt messages
-        :param model_parameters: model parameters (temperature, top_p, etc.)
-        :param tools: tools for tool calling / function calling
-        :param stop: stop words/sequences
-        :param stream: whether to stream the response
-        :param user: unique user ID (for tracking/billing)
-        :return: LLMResult (for non-streaming) or Generator[LLMResultChunk] (for streaming)
         """
         config_kwargs = model_parameters.copy()
 
@@ -189,11 +151,7 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
         if stop:
             config_kwargs["stop_sequences"] = stop
 
-        # --- BEGIN SAFETY SETTINGS MODIFICATION ---
-        # Option 1:  Completely remove safety settings (less recommended)
-        # config_kwargs["safety_settings"] = []
-
-        # Option 2: Explicitly set all safety thresholds to BLOCK_NONE (recommended)
+        # --- 直接关闭所有安全设置 (推荐方式) ---
         config_kwargs["safety_settings"] = [
             genai.types.SafetySetting(
                 category=cat,
@@ -203,43 +161,39 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
                 HarmCategory.HARM_CATEGORY_HATE_SPEECH,
                 HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
                 HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                # HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY  # Uncomment if needed
+                # HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY  # 如果需要，取消注释
             ]
         ]
-        # --- END SAFETY SETTINGS MODIFICATION ---
-
 
         # Configure the Google GenerativeAI library
         genai.configure(api_key=credentials["google_api_key"])
 
-        # Build the conversation history (glm.Content objects)
+        # Build the conversation history
         history = []
         system_instruction = None
 
         for msg in prompt_messages:
             content = self._format_message_to_glm_content(msg)
             if history and history[-1]["role"] == content["role"]:
-                # Combine consecutive messages with the same role
                 history[-1]["parts"].extend(content["parts"])
             elif content["role"] == "system":
-                # Handle system message (set as system_instruction)
                 system_instruction = content["parts"][0]
             else:
                 history.append(content)
 
         if not history:
-            raise InvokeError("The user prompt message is required. You only added a system prompt message.")
+             raise InvokeError("The user prompt message is required.  You only added a system prompt message.")
 
         # Create the Gemini model instance
         google_model = genai.GenerativeModel(model_name=model, system_instruction=system_instruction)
 
-        # Generate content (either streaming or non-streaming)
+        # Generate content
         response = google_model.generate_content(
             contents=history,
-            generation_config=genai.types.GenerationConfig(**config_kwargs),  # Pass all parameters
+            generation_config=genai.types.GenerationConfig(**config_kwargs),
             stream=stream,
             tools=self._convert_tools_to_glm_tool(tools) if tools else None,
-            request_options={"timeout": 600},  # Set a reasonable timeout
+            request_options={"timeout": 600},
         )
 
         if stream:
@@ -247,19 +201,11 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
         else:
             return self._handle_generate_response(model, credentials, response, prompt_messages)
 
-
-
     def _handle_generate_response(
         self, model: str, credentials: dict, response: GenerateContentResponse, prompt_messages: list[PromptMessage]
     ) -> LLMResult:
         """
         Handle a non-streaming LLM response.
-
-        :param model: model name
-        :param credentials: credentials
-        :param response: the response from the Gemini API
-        :param prompt_messages: original prompt messages
-        :return: LLMResult
         """
         assistant_prompt_message = AssistantPromptMessage(content=response.text)
 
@@ -286,12 +232,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     ) -> Generator:
         """
         Handle a streaming LLM response.
-
-        :param model: model name
-        :param credentials: credentials
-        :param response: the response from the Gemini API (a generator)
-        :param prompt_messages: original prompt messages
-        :return: Generator[LLMResultChunk]
         """
         index = -1
         for chunk in response:
@@ -304,7 +244,7 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
                 if part.function_call:
                     assistant_prompt_message.tool_calls = [
                         AssistantPromptMessage.ToolCall(
-                            id=part.function_call.name,  # Corrected: Use name as ID
+                            id=part.function_call.name,
                             type="function",
                             function=AssistantPromptMessage.ToolCall.ToolCallFunction(
                                 name=part.function_call.name,
@@ -315,13 +255,13 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
 
                 index += 1
 
-                if not response._done:  # Check if the response is still in progress
+                if not response._done:
                     yield LLMResultChunk(
                         model=model,
                         prompt_messages=prompt_messages,
                         delta=LLMResultChunkDelta(index=index, message=assistant_prompt_message),
                     )
-                else:  # Last chunk
+                else:
                     if hasattr(response, "usage_metadata") and response.usage_metadata:
                         prompt_tokens = response.usage_metadata.prompt_token_count
                         completion_tokens = response.usage_metadata.candidates_token_count
@@ -337,7 +277,7 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
                         delta=LLMResultChunkDelta(
                             index=index,
                             message=assistant_prompt_message,
-                            finish_reason=str(chunk.candidates[0].finish_reason),  # Include finish reason
+                            finish_reason=str(chunk.candidates[0].finish_reason),
                             usage=usage,
                         ),
                     )
@@ -351,7 +291,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
 
         content = message.content
         if isinstance(content, list):
-            # Extract text parts if content is a list
             content = "".join(c.data for c in content if c.type == PromptMessageContentType.TEXT)
 
         if isinstance(message, UserPromptMessage):
@@ -359,83 +298,71 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
         elif isinstance(message, AssistantPromptMessage):
             message_text = f"{ai_prompt} {content}"
         elif isinstance(message, SystemPromptMessage | ToolPromptMessage):
-            # System and Tool messages are treated like User messages for token counting
             message_text = f"{human_prompt} {content}"
         else:
             raise ValueError(f"Got unknown type {message}")
 
         return message_text
+
     def _upload_file_content_to_google(self, message_content: PromptMessageContent) -> File:
         """
         Upload file content (image, etc.) to Google and return a File object.
         Caches the uploaded file in Redis to avoid re-uploads.
-
-        :param message_content: The PromptMessageContent object containing file data.
-        :return: A google.generativeai.types.File object.
         """
-
         key = f"{message_content.type.value}:{hash(message_content.data)}"
         if redis_client.exists(key):
             try:
                 return genai.get_file(redis_client.get(key).decode())
             except:
-                pass  # File might have expired, re-upload
+                pass
 
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             if message_content.base64_data:
                 file_content = base64.b64decode(message_content.base64_data)
                 temp_file.write(file_content)
-            else:  # Assume URL if not base64
+            else:
                 try:
                     response = requests.get(message_content.url)
-                    response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+                    response.raise_for_status()
                     temp_file.write(response.content)
                 except Exception as ex:
                     raise ValueError(f"Failed to fetch data from url {message_content.url}, {ex}") from ex
             temp_file.flush()
 
-
         file = genai.upload_file(path=temp_file.name, mime_type=message_content.mime_type)
         while file.state.name == "PROCESSING":
-                time.sleep(5)
-                file = genai.get_file(file.name)
-        #google will delete your upload files in 2 days.
+            time.sleep(5)
+            file = genai.get_file(file.name)
         redis_client.setex(key, 47 * 60 * 60, file.name)
 
-
         try:
-            os.unlink(temp_file.name) # clean up the temporary file
+            os.unlink(temp_file.name)
         except PermissionError:
-            # Windows can sometimes raise a PermissionError if the file is still open
             pass
 
         return file
+
     def _format_message_to_glm_content(self, message: PromptMessage) -> ContentType:
         """
         Format a single PromptMessage into a glm.Content object for the Gemini API.
-
-        :param message: The PromptMessage to format.
-        :return: A glm.Content object.
         """
         if isinstance(message, UserPromptMessage):
             glm_content = {"role": "user", "parts": []}
             if isinstance(message.content, str):
                 glm_content["parts"].append(to_part(message.content))
-            else:  # List of content parts
+            else:
                 for c in message.content:
                     if c.type == PromptMessageContentType.TEXT:
                         glm_content["parts"].append(to_part(c.data))
                     else:
-                        # Handle file (image, etc.) content
                         glm_content["parts"].append(self._upload_file_content_to_google(c))
             return glm_content
 
         elif isinstance(message, AssistantPromptMessage):
             glm_content = {"role": "model", "parts": []}
-            if message.content:  # Could be empty in a streaming context
+            if message.content:
                 glm_content["parts"].append(to_part(message.content))
             if message.tool_calls:
-                # Handle function calls (only one at a time in Gemini)
                 glm_content["parts"].append(
                     to_part(
                         glm.FunctionCall(
@@ -447,15 +374,12 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
             return glm_content
 
         elif isinstance(message, SystemPromptMessage):
-            # System messages have a special "system" role
             if isinstance(message.content, list):
-                # System message should ideally be text only; combine if necessary
                 text_contents = filter(lambda c: isinstance(c, TextPromptMessageContent), message.content)
                 message.content = "".join(c.data for c in text_contents)
             return {"role": "system", "parts": [to_part(message.content)]}
 
         elif isinstance(message, ToolPromptMessage):
-            # Tool (function) responses have a "function" role
             return {
                 "role": "function",
                 "parts": [
@@ -473,10 +397,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     def _invoke_error_mapping(self) -> dict[type[InvokeError], list[type[Exception]]]:
         """
         Map model invoke error to unified error
-        The key is the error type thrown to the caller
-        The value is the error type thrown by the model, which needs to be converted into a unified error type for the caller.
-
-        :return: Invoke error mapping
         """
         return {
             InvokeConnectionError: [exceptions.RetryError],
