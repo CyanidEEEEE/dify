@@ -233,8 +233,8 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
                   category=HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
                 threshold=HarmBlockThreshold.BLOCK_NONE,
               ),
-          ]
-      )
+           ]
+        )
 
         if stream:
             return self._handle_generate_stream_response(model, credentials, response, prompt_messages)
