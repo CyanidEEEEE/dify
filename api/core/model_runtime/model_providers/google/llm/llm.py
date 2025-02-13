@@ -206,35 +206,29 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
             raise InvokeError("The user prompt message is required. You only add a system prompt message.")
 
         google_model = genai.GenerativeModel(model_name=model, system_instruction=system_instruction)
-        response = google_model.generate_content(
-          contents=history,
-          generation_config=genai.types.GenerationConfig(**config_kwargs),
-          stream=stream,
-          tools=self._convert_tools_to_glm_tool(tools) if tools else None,
-          request_options={"timeout": 600},
-          safety_settings=[
-              SafetySetting(
-                  category=HarmCategory.HARM_CATEGORY_HARASSMENT,
-                  threshold=HarmBlockThreshold.BLOCK_NONE,
-              ),
-              SafetySetting(
-                  category=HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                  threshold=HarmBlockThreshold.BLOCK_NONE,
-              ),
-              SafetySetting(
-                  category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                  threshold=HarmBlockThreshold.BLOCK_NONE,
-              ),
-              SafetySetting(
-                  category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                  threshold=HarmBlockThreshold.BLOCK_NONE,
-              ),
-              SafetySetting(
-                  category=HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
+        safety_settings=[
+            SafetySetting(
+                category=HarmCategory.HARM_CATEGORY_HARASSMENT,
                 threshold=HarmBlockThreshold.BLOCK_NONE,
-              ),
-           ]
-        )
+            ),
+            SafetySetting(
+                category=HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                threshold=HarmBlockThreshold.BLOCK_NONE,
+            ),
+            SafetySetting(
+                category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                threshold=HarmBlockThreshold.BLOCK_NONE,
+            ),
+            SafetySetting(
+                category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                threshold=HarmBlockThreshold.BLOCK_NONE,
+            ),
+            SafetySetting(
+                category=HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
+                threshold=HarmBlockThreshold.BLOCK_NONE,
+            ),
+        ]
+    )
 
         if stream:
             return self._handle_generate_stream_response(model, credentials, response, prompt_messages)
