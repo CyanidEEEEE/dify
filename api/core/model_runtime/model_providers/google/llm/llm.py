@@ -10,7 +10,7 @@ import google.ai.generativelanguage as glm
 import google.generativeai as genai  # type: ignore
 import requests
 from google.api_core import exceptions
-from google.generativeai.types import ContentType, File, GenerateContentResponse
+from google.generativeai.types import ContentType, File, GenerateContentResponse, HarmCategory, HarmBlockThreshold
 from google.generativeai.types.content_types import to_part
 
 from core.model_runtime.entities.llm_entities import LLMResult, LLMResultChunk, LLMResultChunkDelta
@@ -52,16 +52,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     ) -> Union[LLMResult, Generator]:
         """
         Invoke large language model
-
-        :param model: model name
-        :param credentials: model credentials
-        :param prompt_messages: prompt messages
-        :param model_parameters: model parameters
-        :param tools: tools for tool calling
-        :param stop: stop words
-        :param stream: is stream response
-        :param user: unique user id
-        :return: full response or stream response chunk generator result
         """
         # invoke model
         return self._generate(model, credentials, prompt_messages, model_parameters, tools, stop, stream, user)
@@ -75,12 +65,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     ) -> int:
         """
         Get number of tokens for given prompt messages
-
-        :param model: model name
-        :param credentials: model credentials
-        :param prompt_messages: prompt messages
-        :param tools: tools for tool calling
-        :return:md = genai.GenerativeModel(model)
         """
         prompt = self._convert_messages_to_prompt(prompt_messages)
 
@@ -89,9 +73,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     def _convert_messages_to_prompt(self, messages: list[PromptMessage]) -> str:
         """
         Format a list of messages into a full prompt for the Google model
-
-        :param messages: List of PromptMessage to combine.
-        :return: Combined string with necessary human_prompt and ai_prompt tags.
         """
         messages = messages.copy()  # don't mutate the original list
 
@@ -102,9 +83,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     def _convert_tools_to_glm_tool(self, tools: list[PromptMessageTool]) -> glm.Tool:
         """
         Convert tool messages to glm tools
-
-        :param tools: tool messages
-        :return: glm tools
         """
         function_declarations = []
         for tool in tools:
@@ -137,10 +115,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     def validate_credentials(self, model: str, credentials: dict) -> None:
         """
         Validate model credentials
-
-        :param model: model name
-        :param credentials: model credentials
-        :return:
         """
 
         try:
@@ -149,7 +123,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
 
         except Exception as ex:
             raise CredentialsValidateFailedError(str(ex))
-
     def _generate(
         self,
         model: str,
@@ -163,15 +136,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     ) -> Union[LLMResult, Generator]:
         """
         Invoke large language model
-
-        :param model: model name
-        :param credentials: credentials kwargs
-        :param prompt_messages: prompt messages
-        :param model_parameters: model parameters
-        :param stop: stop words
-        :param stream: is stream response
-        :param user: unique user id
-        :return: full response or stream response chunk generator result
         """
         config_kwargs = model_parameters.copy()
         if schema := config_kwargs.pop("json_schema", None):
@@ -186,6 +150,23 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
 
         if stop:
             config_kwargs["stop_sequences"] = stop
+        
+        # 关闭安全设置： 方式1
+        # config_kwargs["safety_settings"] = []
+        
+        # 关闭安全设置: 方式2
+        config_kwargs["safety_settings"] = [
+            genai.types.SafetySetting(
+                category=cat,
+                threshold=genai.types.HarmBlockThreshold.BLOCK_NONE
+            ) for cat in [
+                HarmCategory.HARM_CATEGORY_HARASSMENT,
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                #HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY # 如果需要，取消注释
+            ]
+        ]
 
         genai.configure(api_key=credentials["google_api_key"])
 
@@ -224,11 +205,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
         """
         Handle llm response
 
-        :param model: model name
-        :param credentials: credentials
-        :param response: response
-        :param prompt_messages: prompt messages
-        :return: llm response
         """
         # transform assistant message to prompt message
         assistant_prompt_message = AssistantPromptMessage(content=response.text)
@@ -259,12 +235,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     ) -> Generator:
         """
         Handle llm stream response
-
-        :param model: model name
-        :param credentials: credentials
-        :param response: response
-        :param prompt_messages: prompt messages
-        :return: llm response chunk generator result
         """
         index = -1
         for chunk in response:
@@ -321,9 +291,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     def _convert_one_message_to_text(self, message: PromptMessage) -> str:
         """
         Convert a single message to a string.
-
-        :param message: PromptMessage to convert.
-        :return: String representation of the message.
         """
         human_prompt = "\n\nuser:"
         ai_prompt = "\n\nmodel:"
@@ -380,9 +347,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     def _format_message_to_glm_content(self, message: PromptMessage) -> ContentType:
         """
         Format a single message into glm.Content for Google API
-
-        :param message: one PromptMessage
-        :return: glm Content representation of message
         """
         if isinstance(message, UserPromptMessage):
             glm_content = {"role": "user", "parts": []}
@@ -433,11 +397,6 @@ class GoogleLargeLanguageModel(LargeLanguageModel):
     def _invoke_error_mapping(self) -> dict[type[InvokeError], list[type[Exception]]]:
         """
         Map model invoke error to unified error
-        The key is the ermd = genai.GenerativeModel(model) error type thrown to the caller
-        The value is the md = genai.GenerativeModel(model) error type thrown by the model,
-        which needs to be converted into a unified error type for the caller.
-
-        :return: Invoke emd = genai.GenerativeModel(model) error mapping
         """
         return {
             InvokeConnectionError: [exceptions.RetryError],
