@@ -438,12 +438,7 @@ class LBModelManager:
     ) -> None:
         """
         Load balancing model manager
-        :param tenant_id: tenant_id
-        :param provider: provider
-        :param model_type: model_type
-        :param model: model name
-        :param load_balancing_configs: all load balancing configurations
-        :param managed_credentials: credentials if load balancing configuration name is __inherit__
+        ...
         """
         self._tenant_id = tenant_id
         self._provider = provider
@@ -451,13 +446,16 @@ class LBModelManager:
         self._model = model
         self._load_balancing_configs = load_balancing_configs
 
-        for load_balancing_config in self._load_balancing_configs[:]:  # Iterate over a shallow copy of the list
+        for load_balancing_config in self._load_balancing_configs[:]:  # 迭代浅拷贝
             if load_balancing_config.name == "__inherit__":
                 if not managed_credentials:
-                    # remove __inherit__ if managed credentials is not provided
                     self._load_balancing_configs.remove(load_balancing_config)
                 else:
                     load_balancing_config.credentials = managed_credentials
+            else:
+                # **添加解密逻辑**
+                if load_balancing_config.credentials: # 确保 credentials 存在
+                    load_balancing_config.credentials = decrypt_credentials(load_balancing_config.credentials)
 
     def fetch_next(self) -> Optional[ModelLoadBalancingConfiguration]:
         """
