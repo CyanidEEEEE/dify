@@ -451,13 +451,9 @@ class LBModelManager:
         self._model = model
         self._load_balancing_configs = load_balancing_configs
 
-        for load_balancing_config in self._load_balancing_configs[:]:  # Iterate over a shallow copy of the list
-            if load_balancing_config.name == "__inherit__":
-                if not managed_credentials:
-                    # remove __inherit__ if managed credentials is not provided
-                    self._load_balancing_configs.remove(load_balancing_config)
-                else:
-                    load_balancing_config.credentials = managed_credentials
+        for load_balancing_config in self._load_balancing_configs:
+            if load_balancing_config.name == "__inherit__" and managed_credentials:
+                load_balancing_config.credentials = managed_credentials
 
     def fetch_next(self) -> Optional[ModelLoadBalancingConfiguration]:
         """
@@ -472,6 +468,9 @@ class LBModelManager:
         cooldown_load_balancing_configs = []
         max_index = len(self._load_balancing_configs)
 
+        if max_index == 0:
+            return None
+
         while True:
             current_index = redis_client.incr(cache_key)
             current_index = cast(int, current_index)
@@ -480,21 +479,17 @@ class LBModelManager:
                 redis_client.set(cache_key, current_index)
 
             redis_client.expire(cache_key, 3600)
-            if current_index > max_index:
-                current_index = current_index % max_index
-
-            real_index = current_index - 1
-            if real_index > max_index:
-                real_index = 0
+            real_index = (current_index - 1) % max_index
 
             config: ModelLoadBalancingConfiguration = self._load_balancing_configs[real_index]
+
+            if not config or not config.credentials:
+                continue
 
             if self.in_cooldown(config):
                 cooldown_load_balancing_configs.append(config)
                 if len(cooldown_load_balancing_configs) >= len(self._load_balancing_configs):
-                    # all configs are in cooldown
                     return None
-
                 continue
 
             if dify_config.DEBUG:
