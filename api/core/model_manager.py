@@ -1,4 +1,3 @@
-# model_manager.py
 import logging
 from collections.abc import Callable, Generator, Iterable, Sequence
 from typing import IO, Any, Optional, Union, cast
@@ -24,8 +23,7 @@ from core.model_runtime.model_providers.__base.tts_model import TTSModel
 from core.provider_manager import ProviderManager
 from extensions.ext_redis import redis_client
 from models.provider import ProviderType
-# from utils.encrypter import encrypter  <-- Remove this
-from core.helper.encrypter import get_decrypt_decoding, decrypt_token_with_decoding  # Correct import
+from core.helper.encrypter import get_decrypt_decoding, decrypt_token_with_decoding
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +113,7 @@ class ModelInstance:
             self._round_robin_invoke(
                 function=self.model_type_instance.invoke,
                 model=self.model,
-                credentials=self.credentials,  # ADDED credentials
+                credentials=self.credentials,
                 prompt_messages=prompt_messages,
                 model_parameters=model_parameters,
                 tools=tools,
@@ -141,7 +139,7 @@ class ModelInstance:
             self._round_robin_invoke(
                 function=self.model_type_instance.get_num_tokens,
                 model=self.model,
-                credentials=self.credentials,  # ADDED credentials
+                credentials=self.credentials,
                 prompt_messages=prompt_messages,
                 tools=tools,
             ),
@@ -162,7 +160,7 @@ class ModelInstance:
             self._round_robin_invoke(
                 function=self.model_type_instance.invoke,
                 model=self.model,
-                credentials=self.credentials,  # ADDED credentials
+                credentials=self.credentials,
                 texts=texts,
                 user=user,
                 input_type=input_type,
@@ -179,7 +177,7 @@ class ModelInstance:
             self._round_robin_invoke(
                 function=self.model_type_instance.get_num_tokens,
                 model=self.model,
-                credentials=self.credentials,  # ADDED credentials
+                credentials=self.credentials,
                 texts=texts,
             ),
         )
@@ -200,7 +198,7 @@ class ModelInstance:
             self._round_robin_invoke(
                 function=self.model_type_instance.invoke,
                 model=self.model,
-                credentials=self.credentials, # ADDED credentials
+                credentials=self.credentials,
                 query=query,
                 docs=docs,
                 score_threshold=score_threshold,
@@ -220,7 +218,7 @@ class ModelInstance:
             self._round_robin_invoke(
                 function=self.model_type_instance.invoke,
                 model=self.model,
-                credentials=self.credentials, # ADDED credentials
+                credentials=self.credentials,
                 text=text,
                 user=user
             )
@@ -236,7 +234,7 @@ class ModelInstance:
             self._round_robin_invoke(
                 function=self.model_type_instance.invoke,
                 model=self.model,
-                credentials=self.credentials, # ADDED credentials
+                credentials=self.credentials,
                 file=file,
                 user=user
             )
@@ -253,7 +251,7 @@ class ModelInstance:
             self._round_robin_invoke(
                 function=self.model_type_instance.invoke,
                 model=self.model,
-                credentials=self.credentials, # ADDED credentials
+                credentials=self.credentials,
                 content_text=content_text,
                 user=user,
                 tenant_id = tenant_id,
@@ -281,50 +279,71 @@ class ModelInstance:
 
         main_credentials = self.credentials  # Use pre-fetched, decrypted credentials
 
-        while True:
-            lb_config = self.load_balancing_manager.fetch_next()
+        retry_count = 0
+        max_retries = len(self.load_balancing_manager._load_balancing_configs) if self.load_balancing_manager else 0
+
+        while retry_count <= max_retries:  # Allow trying all configs + main credentials
+            lb_config = self.load_balancing_manager.fetch_next() if self.load_balancing_manager else None
+
             if not lb_config:
                 if last_exception:
+                    logger.error(f"All LB configs failed or in cooldown. Last exception: {last_exception}")
                     raise last_exception
                 else:
+                    logger.error("No valid model credentials available (initial).")
                     raise ProviderTokenNotInitError("No valid model credentials available.")
 
             try:
                 if lb_config.name == "__inherit__":
                     credentials = main_credentials
+                    logger.debug(f"Using main credentials (inherit): {credentials}")
                 else:
                     credentials = lb_config.credentials.copy()
-                    tenant_id = self.provider_model_bundle.configuration.tenant_id  # Get tenant_id
-                    rsa_key, cipher_rsa = get_decrypt_decoding(tenant_id) # 直接使用导入的函数
+                    tenant_id = self.provider_model_bundle.configuration.tenant_id
+                    rsa_key, cipher_rsa = get_decrypt_decoding(tenant_id)
 
                     for key, value in credentials.items():
                         if isinstance(value, str):
                             try:
                                 if value.startswith('HYBRID:'):
-                                    decrypted_value = decrypt_token_with_decoding(  # 直接使用导入的函数
+                                    decrypted_value = decrypt_token_with_decoding(
                                         value, rsa_key, cipher_rsa
                                     )
                                     credentials[key] = decrypted_value
+                                    logger.debug(f"Decrypted credential: {key}, original: {value}, decrypted: {decrypted_value}")  # Added log
+                                else:
+                                    logger.debug(f"Credential {key} does not require decryption: {value}")  # Added log
+
                             except Exception as e:
-                                logger.warning(f"Failed to decrypt credential {key}: {e}")
+                                logger.warning(f"Failed to decrypt credential {key}: {e}, using original value")
                                 # Keep original value on failure
                                 continue
-                logger.debug(f"Using LB credentials: {credentials}")
+
+                    logger.debug(f"Using LB credentials: {credentials} (config: {lb_config.name})")
+
                 kwargs['credentials'] = credentials
-                return function(*args, **kwargs)  # Corrected call
+                return function(*args, **kwargs)
 
 
             except InvokeRateLimitError as e:
-                logger.warning(f"Rate limit error: {e}")
-                self.load_balancing_manager.cooldown(lb_config, expire=60)
+                logger.warning(f"Rate limit error with config {lb_config.name}: {e}")
+                if self.load_balancing_manager:
+                    self.load_balancing_manager.cooldown(lb_config, expire=60)
                 last_exception = e
             except (InvokeAuthorizationError, InvokeConnectionError) as e:
-                logger.warning(f"Auth/Connection error: {e}")
-                self.load_balancing_manager.cooldown(lb_config, expire=10)
+                logger.warning(f"Auth/Connection error with config {lb_config.name}: {e}")
+                if self.load_balancing_manager:
+                    self.load_balancing_manager.cooldown(lb_config, expire=10)
                 last_exception = e
             except Exception as e:
-                logger.exception(f"Unexpected error during invoke: {e}")  # More detailed logging
+                logger.exception(f"Unexpected error during invoke with config {lb_config.name}: {e}")
                 raise
+
+            retry_count += 1
+
+        logger.error(f"All retries failed. Last exception: {last_exception}") # Log if all retries fail
+        raise last_exception if last_exception else Exception("All retries failed.")
+
 
 
 class ModelManager:
@@ -376,7 +395,9 @@ class LBModelManager:
             if config.name == "__inherit__":
                 if managed_credentials:
                     config.credentials = managed_credentials
+                    logger.debug(f"LB: Initialized '__inherit__' with managed credentials: {managed_credentials}")
                 else:
+                    logger.warning(f"LB: '__inherit__' config found, but managed_credentials are None. Removing config.")
                     self._load_balancing_configs.remove(config)
 
 
@@ -402,12 +423,13 @@ class LBModelManager:
             if self.in_cooldown(config):
                 cooldown_configs.append(config)
                 if len(cooldown_configs) == len(self._load_balancing_configs):
+                    logger.warning(f"LB: All configs in cooldown for tenant {self._tenant_id}, provider {self._provider}, model type {self._model_type}, model {self._model}")
                     return None  # All in cooldown
                 continue
 
             if dify_config.DEBUG:
-                logger.info(
-                    f"LB: id={config.id}, name={config.name}, "
+                logger.debug(
+                    f"LB: Selecting config: id={config.id}, name={config.name}, "
                     f"tenant={self._tenant_id}, provider={self._provider}, "
                     f"type={self._model_type.value}, model={self._model}"
                 )
@@ -419,13 +441,17 @@ class LBModelManager:
             f"{self._model_type.value}:{self._model}:{config.id}"
         )
         redis_client.setex(cooldown_key, expire, "true")
+        logger.warning(f"LB: Config {config.name} (id: {config.id}) entered cooldown for {expire} seconds.")  # ADDED LOG
 
     def in_cooldown(self, config: ModelLoadBalancingConfiguration) -> bool:
         cooldown_key = (
             f"model_lb_index:cooldown:{self._tenant_id}:{self._provider}:"
             f"{self._model_type.value}:{self._model}:{config.id}"
         )
-        return redis_client.exists(cooldown_key)
+        is_in_cooldown = redis_client.exists(cooldown_key)
+        if is_in_cooldown:
+            logger.info(f"LB: Config {config.name} (id: {config.id}) is in cooldown.")  # ADDED LOG
+        return is_in_cooldown
 
     @staticmethod
     def get_config_in_cooldown_and_ttl(
@@ -452,7 +478,7 @@ class LBModelManager:
                 "id": config.id,
                 "name": config.name,
                 "in_cooldown": in_cooldown,
-                "cooldown_ttl": ttl,  # 冷却剩余时间 (秒)
-                # 在这里添加其他相关的状态信息，例如剩余配额
+                "cooldown_ttl": ttl,
+                "credentials": config.credentials # Added to show credentials
             })
         return status
