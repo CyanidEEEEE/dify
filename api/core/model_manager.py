@@ -413,7 +413,7 @@ class LBModelManager:
                 )
             return config
 
-    def cooldown(self, config: ModelLoadBalancingConfiguration, expire: int = 60) -> None:
+    def cooldown(self, config: ModelLoadBalancingConfiguration, expire: int = 30) -> None:
         cooldown_key = (
             f"model_lb_index:cooldown:{self._tenant_id}:{self._provider}:"
             f"{self._model_type.value}:{self._model}:{config.id}"
