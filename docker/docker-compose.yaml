@@ -414,6 +414,9 @@ x-shared-env: &shared-api-worker-env
 services:
   # API service
   api:
+    build:
+      context: ../api  # 构建上下文
+      dockerfile: Dockerfile 
     image: langgenius/dify-api:1.0.0
     restart: always
     environment:
