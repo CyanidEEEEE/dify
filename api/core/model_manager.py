@@ -23,6 +23,7 @@ from core.model_runtime.model_providers.__base.tts_model import TTSModel
 from core.provider_manager import ProviderManager
 from extensions.ext_redis import redis_client
 from models.provider import ProviderType
+from core.helper.encrypter import get_decrypt_decoding, decrypt_token_with_decoding # 确保导入解密函数
 
 logger = logging.getLogger(__name__)
 
@@ -379,9 +380,31 @@ class ModelInstance:
                     raise last_exception
 
             try:
+                #  添加你的凭证解密逻辑
+                credentials = lb_config.credentials.copy()
+                tenant_id = self.provider_model_bundle.configuration.tenant_id
+                rsa_key, cipher_rsa = get_decrypt_decoding(tenant_id)
+
+                for key, value in credentials.items():
+                    if isinstance(value, str):
+                        try:
+                            if value.startswith('HYBRID:'):
+                                decrypted_value = decrypt_token_with_decoding(
+                                    value, rsa_key, cipher_rsa
+                                )
+                                credentials[key] = decrypted_value
+                                logger.debug(f"Decrypted credential: {key}, original: {value}, decrypted: {decrypted_value}")  # Added log
+                            else:
+                                logger.debug(f"Credential {key} does not require decryption: {value}")  # Added log
+
+                        except Exception as e:
+                            logger.warning(f"Failed to decrypt credential {key}: {e}, using original value")
+                            # Keep original value on failure
+                            continue
+
                 if "credentials" in kwargs:
                     del kwargs["credentials"]
-                return function(*args, **kwargs, credentials=lb_config.credentials)
+                return function(*args, **kwargs, credentials=credentials)
             except InvokeRateLimitError as e:
                 # expire in 60 seconds
                 self.load_balancing_manager.cooldown(lb_config, expire=60)
@@ -593,3 +616,21 @@ class LBModelManager:
 
         ttl = cast(int, ttl)
         return True, ttl
+
+    def get_status(self) -> list[dict]:
+        """
+        Returns the status of each load balancing configuration.
+        """
+        status = []
+        for config in self._load_balancing_configs:
+            in_cooldown, ttl = self.get_config_in_cooldown_and_ttl(
+                self._tenant_id, self._provider, self._model_type, self._model, config.id
+            )
+            status.append({
+                "id": config.id,
+                "name": config.name,
+                "in_cooldown": in_cooldown,
+                "cooldown_ttl": ttl,
+                "credentials": config.credentials # Added to show credentials
+            })
+        return status
